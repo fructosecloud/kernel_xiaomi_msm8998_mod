@@ -1,0 +1,89 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      defconfig:
+        description: 'Defconfig name'
+        required: true
+        default: 'local_defconfig'
+
+env:
+  ARCH: arm64
+  SUBARCH: arm64
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: fructosecloud/kernel_xiaomi_msm8998_mod
+          ref: thirteen-plus
+          path: kernel
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            bc bison build-essential ccache curl \
+            flex g++-multilib git gperf \
+            liblz4-tool libncurses5-dev libssl-dev \
+            libxml2-utils lzop rsync schedtool \
+            zip zlib1g-dev \
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          max-size: '2G'
+
+      - name: Download Proton Clang
+        run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git
+
+      - name: Build Kernel
+        working-directory: kernel
+        run: |
+          export PATH="/usr/lib/ccache:$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
+          mkdir -p out
+          make O=out clean
+          make O=out mrproper
+          make O=out ${{ github.event.inputs.defconfig }}
+
+          # 开启 32-bit compat vDSO
+          scripts/config --file out/.config --enable CONFIG_COMPAT_VDSO
+          make O=out olddefconfig
+
+          # 编译
+          make O=out -j1 \
+              CC=clang \
+              CROSS_COMPILE=aarch64-linux-gnu- \
+              CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+              2>&1 | tee build.log
+
+      - name: Package kernel image
+        run: |
+          mkdir artifacts
+          if [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
+            cp kernel/out/arch/arm64/boot/Image.gz artifacts/
+          elif [ -f kernel/out/arch/arm64/boot/Image ]; then
+            cp kernel/out/arch/arm64/boot/Image artifacts/
+          else
+            echo "No kernel image found!"; exit 1
+          fi
+          tar -czf kernel_image.tar.gz -C artifacts .
+
+      - name: Upload kernel image
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image
+          path: kernel_image.tar.gz
+
+      - name: Upload build log
+        uses: actions/upload-artifact@v4
+        with:
+          path: kernel/build.log
+          name: build-log
+        if: always()
