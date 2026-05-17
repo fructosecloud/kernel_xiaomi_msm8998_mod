@@ -23,21 +23,39 @@ jobs:
           ref: thirteen-plus
           path: kernel
           fetch-depth: 1
-      
-      - name: Configure Git user for merge
-        run: |
-          git config --global user.name "Actions"
-          git config --global user.email "actions@github.com"
 
-      - name: Merge CAF tag v4.4.302 into current branch
+      - name: Selective merge CAF tag v4.4.302
         working-directory: kernel
         run: |
-          # 添加 CAF 远程仓库
+          # 设置 Git 用户
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+          # 1. 备份当前的设备树目录（如果存在）
+          if [ -d arch/arm64/boot/dts ]; then
+            cp -r arch/arm64/boot/dts /tmp/my_dts_backup
+          fi
+
+          # 2. 添加 CAF 远程并获取标签
           git remote add caf https://git.codelinaro.org/clo/la/kernel/msm-4.4.git
-          # 获取 v4.4.302 标签（深度1即可）
           git fetch caf tag v4.4.302 --depth=1
-          # 合并标签，发生冲突时优先保留当前分支的修改
-          git merge -X ours --allow-unrelated-histories FETCH_HEAD -m "Merge CAF tag v4.4.302"
+
+          # 3. 开始合并（自动接受所有 CAF 的修改，除了设备树我们稍后会覆盖）
+          #    使用 -X theirs 可以优先采用 CAF 的代码，但设备树我们后面会覆盖，所以无妨。
+          git merge -X theirs --allow-unrelated-histories --no-commit FETCH_HEAD || true
+
+          # 4. 立即恢复你自己的设备树（删除合并来的设备树，复制备份回去）
+          rm -rf arch/arm64/boot/dts
+          if [ -d /tmp/my_dts_backup ]; then
+            cp -r /tmp/my_dts_backup arch/arm64/boot/dts
+          fi
+
+          # 5. 清理因 file/directory 冲突产生的临时文件（如果有）
+          find . -name "*~HEAD" -type f -delete
+
+          # 6. 将所有修改加入暂存区并提交
+          git add .
+          git commit -m "Merge CAF tag v4.4.302 (keep our device tree, auto-resolve others)" || echo "No changes to commit"
 
       - name: Install dependencies
         run: |
