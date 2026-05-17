@@ -32,7 +32,7 @@ jobs:
           # 获取 v4.4.302 标签（深度1即可）
           git fetch caf tag v4.4.302 --depth=1
           # 合并标签，发生冲突时优先保留当前分支的修改
-          git merge -X ours --allow-unrelated-histories caf/v4.4.302 -m "Merge CAF tag v4.4.302"
+          git merge -X ours --allow-unrelated-histories FETCH_HEAD -m "Merge CAF tag v4.4.302"
 
       - name: Install dependencies
         run: |
