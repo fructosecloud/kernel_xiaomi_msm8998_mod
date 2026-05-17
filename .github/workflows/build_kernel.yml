@@ -57,11 +57,11 @@ jobs:
           make O=out olddefconfig
 
           # 编译
-          make O=out -j1 \
+          make O=out -j1 V=1 \
               CC=clang \
               CROSS_COMPILE=aarch64-linux-gnu- \
               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-              LLVM_IAS=1 \
+              AS=arm-linux-gnueabi-as \
               2>&1 | tee build.log
 
       - name: Package kernel image
