@@ -43,6 +43,16 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git
 
+      - name: Patch vdso32 Makefile to remove -no-integrated-as and --prefix
+        working-directory: kernel
+        run: |
+          # 删除 -no-integrated-as 和 $(CLANG_PREFIX32)
+          sed -i 's/ -no-integrated-as//' arch/arm64/kernel/vdso32/Makefile
+          sed -i 's/ $(CLANG_PREFIX32)//' arch/arm64/kernel/vdso32/Makefile
+          # 验证修改结果
+          echo "Modified line:"
+          grep -n "CC_ARM32 :=" arch/arm64/kernel/vdso32/Makefile || true
+
       - name: Build Kernel
         working-directory: kernel
         run: |
@@ -61,8 +71,6 @@ jobs:
               CC=clang \
               CROSS_COMPILE=aarch64-linux-gnu- \
               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-              LLVM=1
-              LLVM_IAS=1 \
               2>&1 | tee build.log
 
       - name: Package kernel image
