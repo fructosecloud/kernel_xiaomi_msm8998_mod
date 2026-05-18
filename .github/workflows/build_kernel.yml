@@ -106,6 +106,98 @@ jobs:
               CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
               2>&1 | tee build.log
 
+      - name: Debug missing symbols (config and build artifacts)
+        working-directory: kernel
+        continue-on-error: true  # 即使某些检查失败也不中断
+        run: |
+          echo "============================================"
+          echo "Step 1: Check kernel .config for critical options"
+          echo "============================================"
+          if [ -f out/.config ]; then
+            grep -E "CONFIG_NET=|CONFIG_IPV6=|CONFIG_ARM64=|CONFIG_ARCH_USE_CSUM=|CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=" out/.config || echo "Some options not found"
+          else
+             echo "out/.config not found"
+          fi
+
+          echo "============================================"
+          echo "Step 2: Check source files for missing symbols"
+          echo "============================================"
+          for file in \
+            arch/arm64/lib/csum_ipv6_magic.S \
+            arch/arm64/lib/do_csum.S \
+            lib/checksum.c \
+            drivers/base/dma-contiguous.c \
+            include/net/ip6_checksum.h
+          do
+            if [ -f "$file" ]; then
+              echo "✓ $file exists"
+            else
+              echo "✗ $file MISSING"
+            fi
+          done
+
+          echo "============================================"
+          echo "Step 3: Check if corresponding object files were built"
+          echo "============================================"
+          # 在 out 目录中查找目标文件
+          for obj in \
+            "arch/arm64/lib/csum_ipv6_magic.o" \
+            "arch/arm64/lib/do_csum.o" \
+            "lib/checksum.o" \
+            "drivers/base/dma-contiguous.o"
+          do
+            if [ -f "out/$obj" ]; then
+              echo "✓ $obj exists"
+              # 用 nm 检查符号是否定义
+              if nm -C "out/$obj" 2>/dev/null | grep -q " csum_ipv6_magic"; then
+                echo "  -> csum_ipv6_magic defined in $obj"
+              fi
+              if nm -C "out/$obj" 2>/dev/null | grep -q " do_csum"; then
+                echo "  -> do_csum defined in $obj"
+              fi
+              if nm -C "out/$obj" 2>/dev/null | grep -q " dma_contiguous_early_fixup"; then
+                echo "  -> dma_contiguous_early_fixup defined in $obj"
+              fi
+            else
+              echo "✗ $obj NOT BUILT"
+            fi
+          done
+
+          echo "============================================"
+          echo "Step 4: Check build rules in arch/arm64/lib/Makefile"
+          echo "============================================"
+          if [ -f arch/arm64/lib/Makefile ]; then
+            grep -E "obj-.*csum_ipv6_magic|obj-.*do_csum|obj-.*checksum" arch/arm64/lib/Makefile || echo "No specific rules found, check generic obj-y"
+            # 显示 lib-y 或 obj-y 中包含哪些文件
+            echo "--- lib-y objects ---"
+            grep "^lib-y" arch/arm64/lib/Makefile || echo "lib-y not defined"
+            echo "--- obj-y objects ---"
+            grep "^obj-y" arch/arm64/lib/Makefile || echo "obj-y not defined"
+          else
+            echo "arch/arm64/lib/Makefile not found"
+          fi
+
+          echo "============================================"
+          echo "Step 5: Scan build.log for relevant warnings/errors"
+          echo "============================================"
+          if [ -f build.log ]; then
+            echo "Lines containing 'csum_ipv6_magic', 'do_csum', 'dma_contiguous' (first 20):"
+            grep -E "csum_ipv6_magic|do_csum|dma_contiguous" build.log | head -20 || echo "None"
+            echo "Lines containing 'unused variable' or 'implicit declaration' (first 10):"
+            grep -E "implicit declaration|unused variable" build.log | head -10 || echo "None"
+          else
+            echo "build.log not found"
+          fi
+
+          echo "============================================"
+          echo "Step 6: Quick check of vmlinux link command (last 5 lines of build.log)"
+          echo "============================================"
+          tail -5 build.log 2>/dev/null || echo "build.log not readable"
+
+          echo "============================================"
+          echo "Debug information collected."
+          echo "============================================"
+ 
       - name: Package kernel image
         run: |
           mkdir artifacts
